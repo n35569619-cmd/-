@@ -7,19 +7,22 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
 -- =========================
--- ตั้งค่า
+-- Settings
 -- =========================
 local speed = 16
 local infiniteJump = false
 
 -- =========================
--- UI
+-- Main GUI
 -- =========================
 local gui = Instance.new("ScreenGui")
 gui.Name = "PlayerControlUI"
 gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
+-- =========================
+-- Main Frame
+-- =========================
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 280, 0, 190)
 frame.Position = UDim2.new(0.5, -140, 0.5, -95)
@@ -27,16 +30,16 @@ frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 frame.BorderSizePixel = 0
 frame.Parent = gui
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 14)
-corner.Parent = frame
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 14)
+frameCorner.Parent = frame
 
 -- =========================
--- หัวข้อ / จุดลาก UI
+-- Title
 -- =========================
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -20, 0, 40)
-title.Position = UDim2.new(0, 10, 0, 5)
+title.Size = UDim2.new(1, -55, 0, 40)
+title.Position = UDim2.new(0, 45, 0, 5)
 title.BackgroundTransparency = 1
 title.Text = "Player Control"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -45,7 +48,25 @@ title.Font = Enum.Font.GothamBold
 title.Parent = frame
 
 -- =========================
--- Speed
+-- X Button
+-- =========================
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 32, 0, 32)
+closeButton.Position = UDim2.new(0, 8, 0, 8)
+closeButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+closeButton.BorderSizePixel = 0
+closeButton.Text = "×"
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.TextSize = 24
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Parent = frame
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 8)
+closeCorner.Parent = closeButton
+
+-- =========================
+-- Speed Label
 -- =========================
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Size = UDim2.new(0, 100, 0, 30)
@@ -58,6 +79,9 @@ speedLabel.Font = Enum.Font.Gotham
 speedLabel.TextXAlignment = Enum.TextXAlignment.Left
 speedLabel.Parent = frame
 
+-- =========================
+-- Speed Box
+-- =========================
 local speedBox = Instance.new("TextBox")
 speedBox.Size = UDim2.new(0, 100, 0, 35)
 speedBox.Position = UDim2.new(1, -115, 0, 47)
@@ -75,7 +99,7 @@ speedCorner.CornerRadius = UDim.new(0, 9)
 speedCorner.Parent = speedBox
 
 -- =========================
--- Infinite Jump
+-- Infinite Jump Button
 -- =========================
 local jumpButton = Instance.new("TextButton")
 jumpButton.Size = UDim2.new(1, -30, 0, 45)
@@ -93,7 +117,7 @@ jumpCorner.CornerRadius = UDim.new(0, 10)
 jumpCorner.Parent = jumpButton
 
 -- =========================
--- ปุ่ม Apply
+-- Apply Button
 -- =========================
 local applyButton = Instance.new("TextButton")
 applyButton.Size = UDim2.new(1, -30, 0, 35)
@@ -111,7 +135,26 @@ applyCorner.CornerRadius = UDim.new(0, 9)
 applyCorner.Parent = applyButton
 
 -- =========================
--- ตั้งความเร็ว
+-- Mini Orange Button
+-- =========================
+local miniButton = Instance.new("TextButton")
+miniButton.Size = UDim2.new(0, 55, 0, 55)
+miniButton.Position = frame.Position
+miniButton.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+miniButton.BorderSizePixel = 0
+miniButton.Text = "+"
+miniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+miniButton.TextSize = 28
+miniButton.Font = Enum.Font.GothamBold
+miniButton.Visible = false
+miniButton.Parent = gui
+
+local miniCorner = Instance.new("UICorner")
+miniCorner.CornerRadius = UDim.new(0, 15)
+miniCorner.Parent = miniButton
+
+-- =========================
+-- Speed Function
 -- =========================
 local function applySpeed()
 	local value = tonumber(speedBox.Text)
@@ -121,8 +164,10 @@ local function applySpeed()
 		speedBox.Text = tostring(speed)
 
 		local character = player.Character
+
 		if character then
 			local humanoid = character:FindFirstChildOfClass("Humanoid")
+
 			if humanoid then
 				humanoid.WalkSpeed = speed
 			end
@@ -134,7 +179,6 @@ end
 
 applyButton.MouseButton1Click:Connect(applySpeed)
 
--- ใช้ Enter เพื่อ Apply
 speedBox.FocusLost:Connect(function()
 	applySpeed()
 end)
@@ -143,6 +187,7 @@ end)
 -- Infinite Jump
 -- =========================
 jumpButton.MouseButton1Click:Connect(function()
+
 	infiniteJump = not infiniteJump
 
 	if infiniteJump then
@@ -150,55 +195,75 @@ jumpButton.MouseButton1Click:Connect(function()
 	else
 		jumpButton.Text = "Infinite Jump : OFF"
 	end
+
 end)
 
 UserInputService.JumpRequest:Connect(function()
+
 	if infiniteJump then
+
 		local character = player.Character
+
 		if character then
+
 			local humanoid = character:FindFirstChildOfClass("Humanoid")
 
 			if humanoid then
-				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+				humanoid:ChangeState(
+					Enum.HumanoidStateType.Jumping
+				)
 			end
+
 		end
+
 	end
+
 end)
 
 -- =========================
--- ตั้ง Speed หลังเกิดใหม่
+-- Respawn
 -- =========================
 player.CharacterAdded:Connect(function(character)
+
 	local humanoid = character:WaitForChild("Humanoid")
+
 	humanoid.WalkSpeed = speed
+
 end)
 
 -- =========================
--- ทำให้ UI ลากได้
+-- Drag UI
 -- =========================
 local dragging = false
 local dragStart
 local startPos
 
 title.InputBegan:Connect(function(input)
+
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 
 		dragging = true
 		dragStart = input.Position
 		startPos = frame.Position
+
 	end
+
 end)
 
 title.InputEnded:Connect(function(input)
+
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 
 		dragging = false
+
 	end
+
 end)
 
 UserInputService.InputChanged:Connect(function(input)
+
 	if dragging and (
 		input.UserInputType == Enum.UserInputType.MouseMovement
 		or input.UserInputType == Enum.UserInputType.Touch
@@ -212,5 +277,32 @@ UserInputService.InputChanged:Connect(function(input)
 			startPos.Y.Scale,
 			startPos.Y.Offset + delta.Y
 		)
+
 	end
+
+end)
+
+-- =========================
+-- Close / Minimize
+-- =========================
+closeButton.MouseButton1Click:Connect(function()
+
+	-- จำตำแหน่งก่อนย่อ
+	miniButton.Position = frame.Position
+
+	frame.Visible = false
+	miniButton.Visible = true
+
+end)
+
+-- =========================
+-- Open / Restore
+-- =========================
+miniButton.MouseButton1Click:Connect(function()
+
+	frame.Position = miniButton.Position
+
+	miniButton.Visible = false
+	frame.Visible = true
+
 end)
