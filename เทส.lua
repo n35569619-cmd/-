@@ -1,28 +1,55 @@
 -- LocalScript
 -- ใส่ใน StarterPlayer > StarterPlayerScripts
--- สำหรับเกม Roblox ที่คุณสร้าง/ควบคุมเอง
+-- ใช้ในแผนที่/เกมของคุณเองเท่านั้น (เช่น ทดสอบระบบ หรือทำเป็น admin panel)
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
 -- =========================
 -- SETTINGS
 -- =========================
 
-local speed = 16
-local infiniteJump = false
-local noclip = false
+local settings = {
+	walkSpeed = 16,
+	flySpeed = 50,
+	infiniteJump = false,
+	noclip = false,
+	flying = false,
+	fovLock = false,
+	fovSize = 120,
+	aimSmoothness = 0.2, -- 0.05 = ล็อคไว / 0.5+ = นุ่มนวล
+}
 
-local flying = false
-local flySpeed = 50
-
-local fovLock = false
-local fovSize = 120
-local lockedPlayer = nil
+local flyUp = false
+local flyDown = false
+local flyConnection = nil
+local noclipConnection = nil
 local lockConnection = nil
+local lockedPlayer = nil
+
+local VIS_CHECK_INTERVAL = 0.1 -- วินาที ระหว่างเช็คกำแพง
+
+-- =========================
+-- CHARACTER HELPERS
+-- =========================
+
+local function getCharacter()
+	return player.Character
+end
+
+local function getHumanoid()
+	local character = getCharacter()
+	return character and character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot()
+	local character = getCharacter()
+	return character and character:FindFirstChild("HumanoidRootPart")
+end
 
 -- =========================
 -- GUI
@@ -32,7 +59,8 @@ local gui = Instance.new("ScreenGui")
 gui.Name = "PlayerControlUI"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
-gui.Parent = player:WaitForChild("PlayerGui")
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
 
 local frame = Instance.new("Frame")
 frame.Size = UDim2.fromOffset(340, 320)
@@ -41,9 +69,13 @@ frame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 frame.BorderSizePixel = 0
 frame.Parent = gui
 
-local frameCorner = Instance.new("UICorner")
-frameCorner.CornerRadius = UDim.new(0, 14)
-frameCorner.Parent = frame
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
+
+local frameStroke = Instance.new("UIStroke")
+frameStroke.Thickness = 1
+frameStroke.Transparency = 0.5
+frameStroke.Color = Color3.fromRGB(70, 70, 85)
+frameStroke.Parent = frame
 
 -- =========================
 -- HEADER
@@ -70,178 +102,84 @@ close.TextSize = 23
 close.Font = Enum.Font.GothamBold
 close.BorderSizePixel = 0
 close.Parent = frame
-
-local closeCorner = Instance.new("UICorner")
-closeCorner.CornerRadius = UDim.new(0, 8)
-closeCorner.Parent = close
+Instance.new("UICorner", close).CornerRadius = UDim.new(0, 8)
 
 -- =========================
--- HELPERS
+-- UI HELPERS
 -- =========================
-
-local function getHumanoid()
-
-	local character = player.Character
-
-	return character
-		and character:FindFirstChildOfClass("Humanoid")
-
-end
-
 
 local function createRow(text, y)
-
 	local label = Instance.new("TextLabel")
-
-	label.Size =
-		UDim2.fromOffset(170, 38)
-
-	label.Position =
-		UDim2.fromOffset(15, y)
-
+	label.Size = UDim2.fromOffset(170, 38)
+	label.Position = UDim2.fromOffset(15, y)
 	label.BackgroundTransparency = 1
-
 	label.Text = text
-
-	label.TextColor3 =
-		Color3.fromRGB(235, 235, 235)
-
+	label.TextColor3 = Color3.fromRGB(235, 235, 235)
 	label.TextSize = 16
-
 	label.Font = Enum.Font.Gotham
-
-	label.TextXAlignment =
-		Enum.TextXAlignment.Left
-
+	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.Parent = frame
-
-	return label
-
 end
 
-
-local function createBox(
-	x,
-	y,
-	width,
-	value,
-	callback
-)
-
+local function createNumberBox(x, y, width, value, min, max, onChanged)
 	local box = Instance.new("TextBox")
-
-	box.Size =
-		UDim2.fromOffset(width, 34)
-
-	box.Position =
-		UDim2.new(1, x, 0, y)
-
-	box.BackgroundColor3 =
-		Color3.fromRGB(50, 50, 60)
-
+	box.Size = UDim2.fromOffset(width, 34)
+	box.Position = UDim2.new(1, x, 0, y)
+	box.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
 	box.Text = tostring(value)
-
-	box.TextColor3 =
-		Color3.new(1, 1, 1)
-
+	box.TextColor3 = Color3.new(1, 1, 1)
 	box.TextSize = 16
-
-	box.Font =
-		Enum.Font.GothamBold
-
+	box.Font = Enum.Font.GothamBold
 	box.BorderSizePixel = 0
-
 	box.ClearTextOnFocus = false
-
 	box.Parent = frame
+	Instance.new("UICorner", box).CornerRadius = UDim.new(0, 9)
 
-	local corner = Instance.new("UICorner")
-
-	corner.CornerRadius =
-		UDim.new(0, 9)
-
-	corner.Parent = box
+	local current = value
 
 	box.FocusLost:Connect(function()
-
-		callback(box)
-
+		local n = tonumber(box.Text)
+		if n then
+			current = math.clamp(math.floor(n + 0.5), min, max)
+			box.Text = tostring(current)
+			onChanged(current)
+		else
+			box.Text = tostring(current)
+		end
 	end)
 
 	return box
-
 end
 
+local OFF_COLOR = Color3.fromRGB(55, 55, 65)
+local ON_COLOR = Color3.fromRGB(255, 140, 0)
 
-local function createToggle(
-	x,
-	y,
-	width,
-	offText,
-	onText,
-	callback
-)
-
+local function createToggle(x, y, width, offText, onText, onChanged)
 	local button = Instance.new("TextButton")
-
-	button.Size =
-		UDim2.fromOffset(width, 34)
-
-	button.Position =
-		UDim2.new(1, x, 0, y)
-
-	button.BackgroundColor3 =
-		Color3.fromRGB(55, 55, 65)
-
-	button.Text = offText
-
-	button.TextColor3 =
-		Color3.new(1, 1, 1)
-
-	button.TextSize = 14
-
-	button.Font =
-		Enum.Font.GothamBold
-
+	button.Size = UDim2.fromOffset(width, 34)
+	button.Position = UDim2.new(1, x, 0, y)
 	button.BorderSizePixel = 0
-
+	button.TextSize = 14
+	button.Font = Enum.Font.GothamBold
 	button.Parent = frame
-
-	local corner = Instance.new("UICorner")
-
-	corner.CornerRadius =
-		UDim.new(0, 9)
-
-	corner.Parent = button
+	Instance.new("UICorner", button).CornerRadius = UDim.new(0, 9)
 
 	local enabled = false
 
+	local function setState(state)
+		enabled = state
+		button.Text = state and onText or offText
+		button.BackgroundColor3 = state and ON_COLOR or OFF_COLOR
+	end
+
 	button.MouseButton1Click:Connect(function()
-
-		enabled = not enabled
-
-		if enabled then
-
-			button.Text = onText
-
-			button.BackgroundColor3 =
-				Color3.fromRGB(255, 140, 0)
-
-		else
-
-			button.Text = offText
-
-			button.BackgroundColor3 =
-				Color3.fromRGB(55, 55, 65)
-
-		end
-
-		callback(enabled)
-
+		setState(not enabled)
+		onChanged(enabled)
 	end)
 
-	return button
+	setState(false)
 
+	return setState
 end
 
 -- =========================
@@ -250,45 +188,13 @@ end
 
 createRow("ความเร็ว", 50)
 
-createBox(
-	-105,
-	52,
-	90,
-	speed,
-	function(box)
-
-		local value =
-			tonumber(box.Text)
-
-		if value then
-
-			speed =
-				math.clamp(
-					math.floor(value),
-					1,
-					100
-				)
-
-			box.Text =
-				tostring(speed)
-
-			local humanoid =
-				getHumanoid()
-
-			if humanoid then
-				humanoid.WalkSpeed =
-					speed
-			end
-
-		else
-
-			box.Text =
-				tostring(speed)
-
-		end
-
+createNumberBox(-105, 52, 90, settings.walkSpeed, 1, 100, function(value)
+	settings.walkSpeed = value
+	local humanoid = getHumanoid()
+	if humanoid then
+		humanoid.WalkSpeed = value
 	end
-)
+end)
 
 -- =========================
 -- FLY
@@ -296,963 +202,454 @@ createBox(
 
 createRow("บิน", 92)
 
-createBox(
-	-195,
-	94,
-	80,
-	flySpeed,
-	function(box)
-
-		local value =
-			tonumber(box.Text)
-
-		if value then
-
-			flySpeed =
-				math.clamp(
-					math.floor(value),
-					1,
-					300
-				)
-
-			box.Text =
-				tostring(flySpeed)
-
-		else
-
-			box.Text =
-				tostring(flySpeed)
-
-		end
-
-	end
-)
-
-local flyUp = false
-local flyDown = false
-local flyConnection = nil
-
-
-local function startFly()
-
-	local humanoid =
-		getHumanoid()
-
-	local character =
-		player.Character
-
-	local root =
-		character
-		and character:FindFirstChild(
-			"HumanoidRootPart"
-		)
-
-	if humanoid then
-		humanoid.PlatformStand = true
-	end
-
-	if root then
-		root.Anchored = true
-	end
-
-	flyConnection =
-		RunService.RenderStepped:Connect(
-			function(dt)
-
-				local character =
-					player.Character
-
-				local humanoid =
-					character
-					and character:FindFirstChildOfClass(
-						"Humanoid"
-					)
-
-				local root =
-					character
-					and character:FindFirstChild(
-						"HumanoidRootPart"
-					)
-
-				if not humanoid or not root then
-					return
-				end
-
-				local camera =
-					workspace.CurrentCamera
-
-				if not camera then
-					return
-				end
-
-				local movement =
-					humanoid.MoveDirection
-
-				if flyUp then
-					movement +=
-						Vector3.new(0, 1, 0)
-				end
-
-				if flyDown then
-					movement -=
-						Vector3.new(0, 1, 0)
-				end
-
-				if movement.Magnitude > 0 then
-
-					root.CFrame =
-						root.CFrame
-						+ movement.Unit
-						* flySpeed
-						* dt
-
-				end
-
-			end
-		)
-
-end
-
+createNumberBox(-195, 94, 80, settings.flySpeed, 1, 300, function(value)
+	settings.flySpeed = value
+end)
 
 local function stopFly()
-
 	if flyConnection then
-
 		flyConnection:Disconnect()
-
 		flyConnection = nil
-
 	end
-
-	local humanoid =
-		getHumanoid()
-
-	local character =
-		player.Character
-
-	local root =
-		character
-		and character:FindFirstChild(
-			"HumanoidRootPart"
-		)
-
+	local humanoid = getHumanoid()
+	local root = getRoot()
 	if humanoid then
 		humanoid.PlatformStand = false
 	end
-
 	if root then
 		root.Anchored = false
 	end
-
 end
 
+local function startFly()
+	stopFly() -- กันซ้ำซ้อน
 
-createToggle(
-	-105,
-	94,
-	90,
-	"ปิด",
-	"เปิด",
-	function(enabled)
-
-		flying = enabled
-
-		if enabled then
-			startFly()
-		else
-			stopFly()
-		end
-
+	local humanoid = getHumanoid()
+	local root = getRoot()
+	if not humanoid or not root then
+		return
 	end
-)
 
+	humanoid.PlatformStand = true
+	root.Anchored = true
 
-UserInputService.InputBegan:Connect(
-	function(input, processed)
-
-		if processed then
+	flyConnection = RunService.Heartbeat:Connect(function(dt)
+		local humanoid = getHumanoid()
+		local root = getRoot()
+		local cam = workspace.CurrentCamera
+		if not humanoid or not root or not cam then
 			return
 		end
 
-		if input.KeyCode ==
-			Enum.KeyCode.Space then
+		-- บินตามทิศกล้อง: มองขึ้นแล้วบินขึ้น
+		local inputDir = humanoid.MoveDirection
+		local direction = cam.CFrame.LookVector * inputDir.Z
+			+ cam.CFrame.RightVector * inputDir.X
 
-			flyUp = true
-
-		elseif input.KeyCode ==
-			Enum.KeyCode.LeftShift then
-
-			flyDown = true
-
+		if flyUp then
+			direction += Vector3.yAxis
+		end
+		if flyDown then
+			direction -= Vector3.yAxis
 		end
 
-	end
-)
-
-
-UserInputService.InputEnded:Connect(
-	function(input)
-
-		if input.KeyCode ==
-			Enum.KeyCode.Space then
-
-			flyUp = false
-
-		elseif input.KeyCode ==
-			Enum.KeyCode.LeftShift then
-
-			flyDown = false
-
+		if direction.Magnitude > 0 then
+			root.CFrame += direction.Unit * settings.flySpeed * dt
 		end
+	end)
+end
 
+local setFlyToggle = createToggle(-105, 94, 90, "ปิด", "เปิด", function(enabled)
+	settings.flying = enabled
+	if enabled then
+		startFly()
+	else
+		stopFly()
 	end
-)
+end)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.Space then
+		flyUp = true
+	elseif input.KeyCode == Enum.KeyCode.LeftShift then
+		flyDown = true
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.Space then
+		flyUp = false
+	elseif input.KeyCode == Enum.KeyCode.LeftShift then
+		flyDown = false
+	end
+end)
 
 -- =========================
 -- INFINITE JUMP
 -- =========================
 
-createRow(
-	"กระโดดไม่จำกัด",
-	134
-)
+createRow("กระโดดไม่จำกัด", 134)
 
-createToggle(
-	-105,
-	136,
-	90,
-	"ปิด",
-	"เปิด",
-	function(enabled)
+local setJumpToggle = createToggle(-105, 136, 90, "ปิด", "เปิด", function(enabled)
+	settings.infiniteJump = enabled
+end)
 
-		infiniteJump = enabled
-
+UserInputService.JumpRequest:Connect(function()
+	if not settings.infiniteJump then
+		return
 	end
-)
-
-
-UserInputService.JumpRequest:Connect(
-	function()
-
-		if not infiniteJump then
-			return
-		end
-
-		local humanoid =
-			getHumanoid()
-
-		if humanoid then
-
-			humanoid:ChangeState(
-				Enum.HumanoidStateType.Jumping
-			)
-
-		end
-
+	local humanoid = getHumanoid()
+	if humanoid and humanoid.FloorMaterial ~= Enum.Material.Air then
+		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 	end
-)
+end)
 
 -- =========================
--- NOCLIP
+-- NOCLIP (เปิด connection เฉพาะตอนใช้)
 -- =========================
 
-createRow(
-	"ทะลุกำแพง",
-	176
-)
-
-createToggle(
-	-105,
-	178,
-	90,
-	"ปิด",
-	"เปิด",
-	function(enabled)
-
-		noclip = enabled
-
+local function setNoclip(enabled)
+	if noclipConnection then
+		noclipConnection:Disconnect()
+		noclipConnection = nil
 	end
-)
-
-
-RunService.Stepped:Connect(
-	function()
-
-		if not noclip then
-			return
-		end
-
-		local character =
-			player.Character
-
-		if not character then
-			return
-		end
-
-		for _, part in ipairs(
-			character:GetDescendants()
-		) do
-
-			if part:IsA("BasePart") then
-				part.CanCollide = false
+	if enabled then
+		noclipConnection = RunService.Stepped:Connect(function()
+			local character = getCharacter()
+			if not character then
+				return
 			end
-
-		end
-
+			for _, part in character:GetDescendants() do
+				if part:IsA("BasePart") then
+					part.CanCollide = false
+				end
+			end
+		end)
 	end
-)
+end
+
+createRow("ทะลุกำแพง", 176)
+
+local setNoclipToggle = createToggle(-105, 178, 90, "ปิด", "เปิด", function(enabled)
+	settings.noclip = enabled
+	setNoclip(enabled)
+end)
 
 -- =========================
 -- FOV CIRCLE
 -- =========================
 
 local fovCircle = Instance.new("Frame")
-
-fovCircle.Name =
-	"FOVCircle"
-
-fovCircle.Size =
-	UDim2.fromOffset(
-		fovSize * 2,
-		fovSize * 2
-	)
-
-fovCircle.AnchorPoint =
-	Vector2.new(0.5, 0.5)
-
--- กลางจอจริง
-fovCircle.Position =
-	UDim2.fromScale(0.5, 0.5)
-
+fovCircle.Name = "FOVCircle"
+fovCircle.Size = UDim2.fromOffset(settings.fovSize * 2, settings.fovSize * 2)
+fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircle.Position = UDim2.fromScale(0.5, 0.5)
 fovCircle.BackgroundTransparency = 1
-
-fovCircle.BorderSizePixel = 0
-
 fovCircle.Visible = false
-
 fovCircle.ZIndex = 10
-
 fovCircle.Parent = gui
 
+Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1, 0)
 
-local fovCorner =
-	Instance.new("UICorner")
-
-fovCorner.CornerRadius =
-	UDim.new(1, 0)
-
-fovCorner.Parent =
-	fovCircle
-
-
-local fovStroke =
-	Instance.new("UIStroke")
-
+local fovStroke = Instance.new("UIStroke")
 fovStroke.Thickness = 2
+fovStroke.Color = Color3.fromRGB(255, 140, 0)
+fovStroke.Parent = fovCircle
 
-fovStroke.Color =
-	Color3.fromRGB(
-		255,
-		140,
-		0
-	)
-
-fovStroke.Parent =
-	fovCircle
+local centerDot = Instance.new("Frame")
+centerDot.Size = UDim2.fromOffset(4, 4)
+centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+centerDot.Position = UDim2.fromScale(0.5, 0.5)
+centerDot.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+centerDot.BorderSizePixel = 0
+centerDot.ZIndex = 11
+centerDot.Parent = fovCircle
+Instance.new("UICorner", centerDot).CornerRadius = UDim.new(1, 0)
 
 -- =========================
--- ตรวจว่ามองเห็นหัวหรือไม่
+-- AIM HELPERS
 -- =========================
+
+local lastVisCheck = 0
+local lastVisResult = false
 
 local function canSeeTarget(head)
+	local now = os.clock()
+	if now - lastVisCheck < VIS_CHECK_INTERVAL then
+		return lastVisResult
+	end
+	lastVisCheck = now
 
-	local camera =
-		workspace.CurrentCamera
-
-	if not camera or not head then
+	local cam = workspace.CurrentCamera
+	if not cam or not head then
+		lastVisResult = false
 		return false
 	end
 
-	local origin =
-		camera.CFrame.Position
-
-	local direction =
-		head.Position - origin
-
-	local params =
-		RaycastParams.new()
-
-	params.FilterType =
-		Enum.RaycastFilterType.Exclude
-
-	params.FilterDescendantsInstances = {
-		player.Character
-	}
-
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { getCharacter() }
 	params.IgnoreWater = true
 
-	local result =
-		workspace:Raycast(
-			origin,
-			direction,
-			params
-		)
+	local result = workspace:Raycast(cam.CFrame.Position, head.Position - cam.CFrame.Position, params)
 
-	-- ไม่มีอะไรบัง
-	if not result then
-		return true
-	end
-
-	-- Ray ชนตัวเป้าหมายเอง
-	if result.Instance:IsDescendantOf(
-		head.Parent
-	) then
-
-		return true
-
-	end
-
-	-- มีกำแพง/วัตถุบัง
-	return false
-
+	lastVisResult = (not result) or result.Instance:IsDescendantOf(head.Parent)
+	return lastVisResult
 end
 
--- =========================
--- หาเป้าหมายที่ใกล้กลางวงที่สุด
--- =========================
+local function getScreenDistance(position)
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return math.huge, false
+	end
+	local screenPos, visible = cam:WorldToViewportPoint(position)
+	if not visible or screenPos.Z <= 0 then
+		return math.huge, false
+	end
+	local center = cam.ViewportSize / 2
+	return (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude, true
+end
+
+local function getTargetHead(target)
+	local character = target and target.Character
+	if not character then
+		return nil, nil
+	end
+	return character:FindFirstChildOfClass("Humanoid"), character:FindFirstChild("Head")
+end
 
 local function getBestFOVTarget()
-
-	local camera =
-		workspace.CurrentCamera
-
-	if not camera then
-		return nil
-	end
-
-	local center =
-		Vector2.new(
-			camera.ViewportSize.X / 2,
-			camera.ViewportSize.Y / 2
-		)
-
-	local bestPlayer = nil
-	local bestDistance = math.huge
-
-	for _, otherPlayer in ipairs(
-		Players:GetPlayers()
-	) do
-
-		if otherPlayer ~= player then
-
-			local character =
-				otherPlayer.Character
-
-			local humanoid =
-				character
-				and character:FindFirstChildOfClass(
-					"Humanoid"
-				)
-
-			local head =
-				character
-				and character:FindFirstChild(
-					"Head"
-				)
-
-			if humanoid
-				and head
-				and humanoid.Health > 0 then
-
-				local screenPos, visible =
-					camera:WorldToViewportPoint(
-						head.Position
-					)
-
-				if visible
-					and screenPos.Z > 0 then
-
-					local distance =
-						(
-							Vector2.new(
-								screenPos.X,
-								screenPos.Y
-							) - center
-						).Magnitude
-
-					-- ต้องอยู่ในวง
-					if distance <= fovSize then
-
-						-- ต้องไม่มีอะไรมาบัง
-						if canSeeTarget(head) then
-
-							-- ใกล้กลางวงที่สุด
-							if distance <
-								bestDistance then
-
-								bestDistance =
-									distance
-
-								bestPlayer =
-									otherPlayer
-
-							end
-
-						end
-
+	local bestPlayer, bestDistance = nil, math.huge
+	for _, other in Players:GetPlayers() do
+		if other ~= player then
+			local humanoid, head = getTargetHead(other)
+			if humanoid and head and humanoid.Health > 0 then
+				local distance, visible = getScreenDistance(head.Position)
+				if visible and distance <= settings.fovSize and canSeeTarget(head) then
+					if distance < bestDistance then
+						bestDistance = distance
+						bestPlayer = other
 					end
-
 				end
-
 			end
-
 		end
-
 	end
-
 	return bestPlayer
-
 end
-
--- =========================
--- ตรวจเป้าหมายเดิม
--- =========================
 
 local function isTargetValid(target)
-
-	if not target then
+	local humanoid, head = getTargetHead(target)
+	if not humanoid or not head or humanoid.Health <= 0 then
 		return false
 	end
-
-	local character =
-		target.Character
-
-	if not character then
+	local distance, visible = getScreenDistance(head.Position)
+	if not visible or distance > settings.fovSize then
 		return false
 	end
-
-	local humanoid =
-		character:FindFirstChildOfClass(
-			"Humanoid"
-		)
-
-	local head =
-		character:FindFirstChild("Head")
-
-	if not humanoid
-		or not head
-		or humanoid.Health <= 0 then
-
-		return false
-
-	end
-
-	local camera =
-		workspace.CurrentCamera
-
-	if not camera then
-		return false
-	end
-
-	local screenPos, visible =
-		camera:WorldToViewportPoint(
-			head.Position
-		)
-
-	if not visible
-		or screenPos.Z <= 0 then
-
-		return false
-
-	end
-
-	local center =
-		Vector2.new(
-			camera.ViewportSize.X / 2,
-			camera.ViewportSize.Y / 2
-		)
-
-	local distance =
-		(
-			Vector2.new(
-				screenPos.X,
-				screenPos.Y
-			) - center
-		).Magnitude
-
-	-- ออกจากวง
-	if distance > fovSize then
-		return false
-	end
-
-	-- มีกำแพงบัง
-	if not canSeeTarget(head) then
-		return false
-	end
-
-	return true
-
+	return canSeeTarget(head)
 end
-
--- =========================
--- STOP LOCK
--- =========================
 
 local function stopTargetLock()
-
 	if lockConnection then
-
 		lockConnection:Disconnect()
-
 		lockConnection = nil
-
 	end
-
 	lockedPlayer = nil
-
+	fovStroke.Color = Color3.fromRGB(255, 140, 0)
 end
 
--- =========================
--- START LOCK
--- =========================
-
 local function startTargetLock()
-
 	stopTargetLock()
-
-	-- เลือกคนที่ใกล้กลางวงที่สุด
-	lockedPlayer =
-		getBestFOVTarget()
-
+	lockedPlayer = getBestFOVTarget()
 	if not lockedPlayer then
 		return
 	end
 
-	lockConnection =
-		RunService.RenderStepped:Connect(
-			function()
+	lockConnection = RunService.RenderStepped:Connect(function(dt)
+		if not settings.fovLock then
+			return
+		end
 
-				if not fovLock then
-					return
-				end
-
-				local camera =
-					workspace.CurrentCamera
-
-				if not camera then
-					return
-				end
-
-				-- ถ้าเป้าหมายเดิมยังใช้ได้
-				-- จะไม่เปลี่ยนเป้าหมาย
-				if not isTargetValid(
-					lockedPlayer
-				) then
-
-					-- หาใหม่เฉพาะเมื่อเป้าหมายเดิมใช้ไม่ได้
-					lockedPlayer =
-						getBestFOVTarget()
-
-				end
-
-				if not lockedPlayer then
-					return
-				end
-
-				local character =
-					lockedPlayer.Character
-
-				local head =
-					character
-					and character:FindFirstChild(
-						"Head"
-					)
-
-				if not head then
-					return
-				end
-
-				-- ล็อคตรงหัว
-				camera.CFrame =
-					CFrame.lookAt(
-						camera.CFrame.Position,
-						head.Position
-					)
-
+		-- เปลี่ยนเป้าเฉพาะตอนเป้าเดิมใช้ไม่ได้แล้ว
+		if not isTargetValid(lockedPlayer) then
+			lockedPlayer = getBestFOVTarget()
+			if not lockedPlayer then
+				fovStroke.Color = Color3.fromRGB(255, 140, 0)
+				return
 			end
-		)
+		end
 
+		local _, head = getTargetHead(lockedPlayer)
+		if not head then
+			return
+		end
+
+		fovStroke.Color = Color3.fromRGB(255, 60, 60)
+
+		-- ล็อคแบบ smooth
+		local cam = workspace.CurrentCamera
+		if not cam then
+			return
+		end
+		local targetCFrame = CFrame.lookAt(cam.CFrame.Position, head.Position)
+		local alpha = 1 - math.exp(-dt / math.max(settings.aimSmoothness, 0.01))
+		cam.CFrame = cam.CFrame:Lerp(targetCFrame, alpha)
+	end)
 end
 
 -- =========================
 -- LOCK UI
 -- =========================
 
-createRow(
-	"ล็อคหัว",
-	218
-)
+createRow("ล็อคหัว", 218)
 
+createNumberBox(-195, 220, 80, settings.fovSize, 30, 400, function(value)
+	settings.fovSize = value
+	fovCircle.Size = UDim2.fromOffset(value * 2, value * 2)
+end)
 
-createBox(
-	-195,
-	220,
-	80,
-	fovSize,
-	function(box)
-
-		local value =
-			tonumber(box.Text)
-
-		if value then
-
-			fovSize =
-				math.clamp(
-					math.floor(value),
-					30,
-					400
-				)
-
-			box.Text =
-				tostring(fovSize)
-
-			fovCircle.Size =
-				UDim2.fromOffset(
-					fovSize * 2,
-					fovSize * 2
-				)
-
-		else
-
-			box.Text =
-				tostring(fovSize)
-
-		end
-
+local setLockToggle = createToggle(-105, 220, 90, "ปิด", "เปิด", function(enabled)
+	settings.fovLock = enabled
+	fovCircle.Visible = enabled
+	if enabled then
+		startTargetLock()
+	else
+		stopTargetLock()
 	end
-)
+end)
 
+createRow("ความนุ่มล็อค", 260)
 
-createToggle(
-	-105,
-	220,
-	90,
-	"ปิด",
-	"เปิด",
-	function(enabled)
+createNumberBox(-105, 262, 90, settings.aimSmoothness, 0.05, 1, function(value)
+	settings.aimSmoothness = value
+end)
 
-		fovLock = enabled
+-- =========================
+-- RESPAWN / DEATH HANDLING
+-- =========================
 
-		fovCircle.Visible =
-			enabled
+player.CharacterAdded:Connect(function(character)
+	local humanoid = character:WaitForChild("Humanoid")
+	humanoid.WalkSpeed = settings.walkSpeed
 
-		if enabled then
-
-			startTargetLock()
-
-		else
-
+	humanoid.Died:Connect(function()
+		-- รีเซ็ตทุกอย่างตอนตาย
+		if settings.flying then
+			settings.flying = false
+			stopFly()
+			setFlyToggle(false)
+		end
+		if settings.noclip then
+			settings.noclip = false
+			setNoclip(false)
+			setNoclipToggle(false)
+		end
+		if settings.fovLock then
+			settings.fovLock = false
+			fovCircle.Visible = false
 			stopTargetLock()
-
+			setLockToggle(false)
 		end
+	end)
 
-	end
-)
-
--- =========================
--- RESPAWN
--- =========================
-
-player.CharacterAdded:Connect(
-	function(character)
-
-		local humanoid =
-			character:WaitForChild(
-				"Humanoid"
-			)
-
-		humanoid.WalkSpeed =
-			speed
-
-		task.wait(0.3)
-
-		if noclip then
-
-			for _, part in ipairs(
-				character:GetDescendants()
-			) do
-
-				if part:IsA("BasePart") then
-					part.CanCollide = false
-				end
-
+	-- คืนค่าถ้า toggle ยังเปิดอยู่ตอนเกิดใหม่
+	task.wait(0.2)
+	if settings.noclip then
+		for _, part in character:GetDescendants() do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
 			end
-
 		end
-
-		if fovLock then
-
-			task.wait(0.3)
-
-			startTargetLock()
-
-		end
-
 	end
-)
+	if settings.flySpeed and settings.flying then
+		startFly()
+	end
+	if settings.fovLock then
+		startTargetLock()
+	end
+end)
 
 -- =========================
 -- DRAG UI
 -- =========================
 
 local dragging = false
-local dragStart
-local startPos
+local dragStart, startPos
 
-
-header.InputBegan:Connect(
-	function(input)
-
-		if input.UserInputType ==
-			Enum.UserInputType.MouseButton1
-			or input.UserInputType ==
-			Enum.UserInputType.Touch then
-
-			dragging = true
-
-			dragStart =
-				input.Position
-
-			startPos =
-				frame.Position
-
-		end
-
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = frame.Position
 	end
-)
+end)
 
-
-header.InputEnded:Connect(
-	function(input)
-
-		if input.UserInputType ==
-			Enum.UserInputType.MouseButton1
-			or input.UserInputType ==
-			Enum.UserInputType.Touch then
-
-			dragging = false
-
-		end
-
+header.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
 	end
-)
+end)
 
-
-UserInputService.InputChanged:Connect(
-	function(input)
-
-		if not dragging then
-			return
-		end
-
-		if input.UserInputType ==
-			Enum.UserInputType.MouseMovement
-			or input.UserInputType ==
-			Enum.UserInputType.Touch then
-
-			local delta =
-				input.Position -
-				dragStart
-
-			frame.Position =
-				UDim2.new(
-					startPos.X.Scale,
-					startPos.X.Offset +
-						delta.X,
-
-					startPos.Y.Scale,
-					startPos.Y.Offset +
-						delta.Y
-				)
-
-		end
-
+UserInputService.InputChanged:Connect(function(input)
+	if not dragging then
+		return
 	end
-)
+	if input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch then
+		local delta = input.Position - dragStart
+		frame.Position = UDim2.new(
+			startPos.X.Scale, startPos.X.Offset + delta.X,
+			startPos.Y.Scale, startPos.Y.Offset + delta.Y
+		)
+	end
+end)
 
 -- =========================
--- MINIMIZE
+-- MINIMIZE + HOTKEY
 -- =========================
 
-local miniButton =
-	Instance.new("TextButton")
-
-miniButton.Size =
-	UDim2.fromOffset(
-		55,
-		55
-	)
-
-miniButton.Position =
-	frame.Position
-
-miniButton.BackgroundColor3 =
-	Color3.fromRGB(
-		255,
-		140,
-		0
-	)
-
+local miniButton = Instance.new("TextButton")
+miniButton.Size = UDim2.fromOffset(55, 55)
+miniButton.Position = frame.Position
+miniButton.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
 miniButton.Text = "+"
-
-miniButton.TextColor3 =
-	Color3.new(1, 1, 1)
-
+miniButton.TextColor3 = Color3.new(1, 1, 1)
 miniButton.TextSize = 27
-
-miniButton.Font =
-	Enum.Font.GothamBold
-
+miniButton.Font = Enum.Font.GothamBold
 miniButton.BorderSizePixel = 0
-
 miniButton.Visible = false
-
 miniButton.Parent = gui
+Instance.new("UICorner", miniButton).CornerRadius = UDim.new(0, 15)
 
+local function minimize()
+	miniButton.Position = frame.Position
+	frame.Visible = false
+	miniButton.Visible = true
+end
 
-local miniCorner =
-	Instance.new("UICorner")
+local function restore()
+	frame.Position = miniButton.Position
+	miniButton.Visible = false
+	frame.Visible = true
+end
 
-miniCorner.CornerRadius =
-	UDim.new(0, 15)
+close.MouseButton1Click:Connect(minimize)
+miniButton.MouseButton1Click:Connect(restore)
 
-miniCorner.Parent =
-	miniButton
-
-
-close.MouseButton1Click:Connect(
-	function()
-
-		miniButton.Position =
-			frame.Position
-
-		frame.Visible = false
-
-		miniButton.Visible = true
-
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then
+		return
 	end
-)
-
-
-miniButton.MouseButton1Click:Connect(
-	function()
-
-		frame.Position =
-			miniButton.Position
-
-		miniButton.Visible = false
-
-		frame.Visible = true
-
+	if input.KeyCode == Enum.KeyCode.RightShift then
+		if frame.Visible then
+			minimize()
+		else
+			restore()
+		end
 	end
-)
+end)
