@@ -99,6 +99,11 @@ local speedCorner = Instance.new("UICorner")
 speedCorner.CornerRadius = UDim.new(0,9)
 speedCorner.Parent = speedBox
 
+local function getHumanoid()
+	local character = player.Character
+	return character and character:FindFirstChildOfClass("Humanoid")
+end
+
 local function applySpeed()
 	local value = tonumber(speedBox.Text)
 
@@ -106,12 +111,9 @@ local function applySpeed()
 		speed = math.clamp(math.floor(value), 1, 100)
 		speedBox.Text = tostring(speed)
 
-		local character = player.Character
-		if character then
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-			if humanoid then
-				humanoid.WalkSpeed = speed
-			end
+		local humanoid = getHumanoid()
+		if humanoid then
+			humanoid.WalkSpeed = speed
 		end
 	else
 		speedBox.Text = tostring(speed)
@@ -123,7 +125,7 @@ speedBox.FocusLost:Connect(applySpeed)
 -- =========================
 -- ปุ่ม Toggle
 -- =========================
-local function createToggle(y, offText, onText)
+local function createToggle(y, offText, onText, onChanged)
 	local button = Instance.new("TextButton")
 
 	button.Size = UDim2.new(0, 90, 0, 34)
@@ -152,11 +154,13 @@ local function createToggle(y, offText, onText)
 			button.Text = offText
 			button.BackgroundColor3 = Color3.fromRGB(55,55,65)
 		end
+
+		if onChanged then
+			onChanged(enabled)
+		end
 	end)
 
-	return button, function()
-		return enabled
-	end
+	return button
 end
 
 -- =========================
@@ -164,23 +168,30 @@ end
 -- =========================
 createRow("กระโดดไม่จำกัด", 92)
 
-local jumpButton, getJumpState =
-	createToggle(94, "ปิด", "เปิด")
-
-jumpButton.MouseButton1Click:Connect(function()
-	infiniteJump = getJumpState()
+createToggle(94, "ปิด", "เปิด", function(enabled)
+	infiniteJump = enabled
 end)
 
 -- =========================
--- ทะลุกำแพง
+-- ทะลุกำแพง (แก้บั๊ก: คืนค่า CanCollide ตอนปิด, ทำงานเบาลง)
 -- =========================
 createRow("ทะลุกำแพง", 134)
 
-local noclipButton, getNoclipState =
-	createToggle(136, "ปิด", "เปิด")
+local function setCharacterCollisions(character, canCollide)
+	for _, part in ipairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CanCollide = canCollide
+		end
+	end
+end
 
-noclipButton.MouseButton1Click:Connect(function()
-	noclip = getNoclipState()
+createToggle(136, "ปิด", "เปิด", function(enabled)
+	noclip = enabled
+
+	local character = player.Character
+	if character then
+		setCharacterCollisions(character, not enabled)
+	end
 end)
 
 -- =========================
@@ -188,30 +199,27 @@ end)
 -- =========================
 UserInputService.JumpRequest:Connect(function()
 	if infiniteJump then
-		local character = player.Character
+		local humanoid = getHumanoid()
 
-		if character then
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-
-			if humanoid then
-				humanoid:ChangeState(
-					Enum.HumanoidStateType.Jumping
-				)
-			end
+		if humanoid then
+			humanoid:ChangeState(
+				Enum.HumanoidStateType.Jumping
+			)
 		end
 	end
 end)
 
 -- =========================
 -- Noclip
+-- บังคับ CanCollide=false เฉพาะตอนเปิดอยู่ (กันของใหม่ที่เพิ่มเข้ามา
+-- เช่น เครื่องมือ/accessory) แทนที่จะวนลูปทุกเฟรมโดยไม่จำเป็น
 -- =========================
 RunService.Stepped:Connect(function()
 	if noclip then
 		local character = player.Character
-
 		if character then
 			for _, part in ipairs(character:GetDescendants()) do
-				if part:IsA("BasePart") then
+				if part:IsA("BasePart") and part.CanCollide then
 					part.CanCollide = false
 				end
 			end
@@ -220,11 +228,15 @@ RunService.Stepped:Connect(function()
 end)
 
 -- =========================
--- Respawn
+-- Respawn: sync ค่าความเร็ว + noclip ให้ตัวละครใหม่
 -- =========================
 player.CharacterAdded:Connect(function(character)
 	local humanoid = character:WaitForChild("Humanoid")
 	humanoid.WalkSpeed = speed
+
+	if noclip then
+		setCharacterCollisions(character, false)
+	end
 end)
 
 -- =========================
