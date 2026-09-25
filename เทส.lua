@@ -229,8 +229,16 @@ local function startFly()
 		if flyKeys.Up then moveVector += Vector3.new(0, 1, 0) end
 		if flyKeys.Down then moveVector -= Vector3.new(0, 1, 0) end
 
+		local newPosition = hrp.Position
 		if moveVector.Magnitude > 0 then
-			hrp.CFrame = hrp.CFrame + moveVector.Unit * flySpeed * dt
+			newPosition = hrp.Position + moveVector.Unit * flySpeed * dt
+		end
+
+		-- หันตัวไปทางกล้อง (แนวนอน) เสมอตอนบิน
+		if flatForward.Magnitude > 0 then
+			hrp.CFrame = CFrame.new(newPosition, newPosition + flatForward)
+		else
+			hrp.CFrame = CFrame.new(newPosition) * (hrp.CFrame - hrp.CFrame.Position)
 		end
 	end)
 end
