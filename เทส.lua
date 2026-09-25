@@ -186,8 +186,18 @@ local function setPlatformStand(state)
 	end
 end
 
+local function setRootAnchored(state)
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		hrp.Anchored = state
+	end
+end
+
 local function startFly()
 	setPlatformStand(true)
+	-- ล็อกร่างกายไม่ให้ฟิสิกส์/แรงโน้มถ่วงดึงตก แล้วขยับเองด้วยโค้ดแทน
+	setRootAnchored(true)
 
 	flyConnection = RunService.RenderStepped:Connect(function(dt)
 		local character = player.Character
@@ -217,6 +227,7 @@ local function stopFly()
 		flyConnection:Disconnect()
 		flyConnection = nil
 	end
+	setRootAnchored(false)
 	setPlatformStand(false)
 end
 
@@ -312,6 +323,8 @@ end)
 
 -- =========================
 -- Noclip
+-- บังคับ CanCollide=false เฉพาะตอนเปิดอยู่ (กันของใหม่ที่เพิ่มเข้ามา
+-- เช่น เครื่องมือ/accessory) แทนที่จะวนลูปทุกเฟรมโดยไม่จำเป็น
 -- =========================
 RunService.Stepped:Connect(function()
 	if noclip then
@@ -339,6 +352,8 @@ player.CharacterAdded:Connect(function(character)
 
 	if flying then
 		humanoid.PlatformStand = true
+		local hrp = character:WaitForChild("HumanoidRootPart")
+		hrp.Anchored = true
 	end
 end)
 
