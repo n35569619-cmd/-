@@ -176,7 +176,9 @@ end)
 -- =========================
 createRow("บิน", 92, 100)
 
-local flyKeys = { W = false, A = false, S = false, D = false, Up = false, Down = false }
+-- Up/Down เป็นปุ่มเสริมสำหรับคีย์บอร์ด (Space/Shift)
+-- ส่วนเดินหน้า/ถอยหลัง/สไลด์ซ้ายขวา จะอ่านจากปุ่มเดินปกติ (ใช้ได้ทั้งคีย์บอร์ด/จอยเสมือน/เกมแพด)
+local flyKeys = { Up = false, Down = false }
 local flyConnection = nil
 
 local function setPlatformStand(state)
@@ -201,18 +203,29 @@ local function startFly()
 
 	flyConnection = RunService.RenderStepped:Connect(function(dt)
 		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local hrp = character and character:FindFirstChild("HumanoidRootPart")
-		if not hrp then return end
+		if not humanoid or not hrp then return end
 
 		local camera = workspace.CurrentCamera
 		if not camera then return end
 
-		local moveVector = Vector3.new()
+		-- อ่านทิศจากปุ่มเดิน/จอยเสมือน/เกมแพดที่ผู้เล่นกดอยู่ (ใช้ได้ทุกแพลตฟอร์ม)
+		local moveDir = humanoid.MoveDirection
 
-		if flyKeys.W then moveVector += camera.CFrame.LookVector end
-		if flyKeys.S then moveVector -= camera.CFrame.LookVector end
-		if flyKeys.A then moveVector -= camera.CFrame.RightVector end
-		if flyKeys.D then moveVector += camera.CFrame.RightVector end
+		local flatForward = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z)
+		local flatRight = Vector3.new(camera.CFrame.RightVector.X, 0, camera.CFrame.RightVector.Z)
+
+		if flatForward.Magnitude > 0 then flatForward = flatForward.Unit end
+		if flatRight.Magnitude > 0 then flatRight = flatRight.Unit end
+
+		local forwardAmount = moveDir:Dot(flatForward)
+		local rightAmount = moveDir:Dot(flatRight)
+
+		-- ใช้ LookVector เต็ม (รวมมุมเงย/ก้มกล้อง) เพื่อให้เงยกล้องแล้วบินขึ้น ก้มแล้วบินลงได้
+		local moveVector = camera.CFrame.LookVector * forwardAmount + camera.CFrame.RightVector * rightAmount
+
+		-- Space/Shift เป็นปุ่มเสริมสำหรับขึ้น-ลงตรงๆ (คีย์บอร์ด)
 		if flyKeys.Up then moveVector += Vector3.new(0, 1, 0) end
 		if flyKeys.Down then moveVector -= Vector3.new(0, 1, 0) end
 
@@ -252,25 +265,18 @@ createToggle(-105, 94, 90, "ปิด", "เปิด", function(enabled)
 	end
 end)
 
--- ปุ่มบังคับบิน: W/A/S/D เดิน, Space ขึ้น, Shift ลง (ใช้ทิศตามกล้อง)
+-- ปุ่มเสริมสำหรับคีย์บอร์ด: Space ขึ้นตรงๆ, Shift ลงตรงๆ
+-- (เดินหน้า/ถอยหลัง/สไลด์ซ้ายขวา ใช้ปุ่มเดินปกติของเกมอยู่แล้ว ไม่ต้องจับเอง)
 UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
 	if gameProcessedEvent then return end
 
-	if input.KeyCode == Enum.KeyCode.W then flyKeys.W = true
-	elseif input.KeyCode == Enum.KeyCode.A then flyKeys.A = true
-	elseif input.KeyCode == Enum.KeyCode.S then flyKeys.S = true
-	elseif input.KeyCode == Enum.KeyCode.D then flyKeys.D = true
-	elseif input.KeyCode == Enum.KeyCode.Space then flyKeys.Up = true
+	if input.KeyCode == Enum.KeyCode.Space then flyKeys.Up = true
 	elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then flyKeys.Down = true
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.W then flyKeys.W = false
-	elseif input.KeyCode == Enum.KeyCode.A then flyKeys.A = false
-	elseif input.KeyCode == Enum.KeyCode.S then flyKeys.S = false
-	elseif input.KeyCode == Enum.KeyCode.D then flyKeys.D = false
-	elseif input.KeyCode == Enum.KeyCode.Space then flyKeys.Up = false
+	if input.KeyCode == Enum.KeyCode.Space then flyKeys.Up = false
 	elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then flyKeys.Down = false
 	end
 end)
