@@ -31,7 +31,9 @@ local noclipConnection = nil
 local lockConnection = nil
 local lockedPlayer = nil
 
-local VIS_CHECK_INTERVAL = 0.1 -- วินาที ระหว่างเช็คกำแพง
+local VIS_CHECK_INTERVAL = 0.05 -- วินาที ระหว่างเช็คกำแพง (เร็วขึ้น)
+local PREDICTION_ENABLED = true -- ทำนายตำแหน่งเป้าหมาย
+local PREDICTION_STRENGTH = 0.5 -- 0-1: ความแรงของการทำนาย
 
 -- =========================
 -- CHARACTER HELPERS
@@ -370,11 +372,13 @@ centerDot.Parent = fovCircle
 Instance.new("UICorner", centerDot).CornerRadius = UDim.new(1, 0)
 
 -- =========================
--- AIM HELPERS
+-- AIM HELPERS (ปรับปรุง)
 -- =========================
 
 local lastVisCheck = 0
 local lastVisResult = false
+local lastTargetVelocity = Vector3.new()
+local lastHeadPosition = Vector3.new()
 
 local function canSeeTarget(head)
 	local now = os.clock()
@@ -419,6 +423,25 @@ local function getTargetHead(target)
 		return nil, nil
 	end
 	return character:FindFirstChildOfClass("Humanoid"), character:FindFirstChild("Head")
+end
+
+-- ทำนายตำแหน่งเป้าหมาย
+local function getPredictedPosition(head, velocity, distance, aimSmoothness)
+	if not PREDICTION_ENABLED or not head then
+		return head.Position
+	end
+	
+	-- คำนวณเวลาในการเคลื่อนที่ไปยังเป้าหมาย
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return head.Position
+	end
+	
+	-- ระยะห่างและเวลาประมาณ
+	local travelTime = distance / 1000 -- ปรับตามความเร็ว
+	local predictedPos = head.Position + (velocity * travelTime * PREDICTION_STRENGTH)
+	
+	return predictedPos
 end
 
 local function getBestFOVTarget()
@@ -482,19 +505,28 @@ local function startTargetLock()
 			end
 		end
 
-		local _, head = getTargetHead(lockedPlayer)
-		if not head then
+		local humanoid, head = getTargetHead(lockedPlayer)
+		if not head or not humanoid then
 			return
 		end
 
 		fovStroke.Color = Color3.fromRGB(255, 60, 60)
 
-		-- ล็อคแบบ smooth
+		-- คำนวณความเร็วของเป้าหมาย
+		local headDelta = head.Position - lastHeadPosition
+		lastHeadPosition = head.Position
+		lastTargetVelocity = headDelta / math.max(dt, 0.016)
+
+		-- ล็อคแบบ smooth + ทำนายตำแหน่ง
 		local cam = workspace.CurrentCamera
 		if not cam then
 			return
 		end
-		local targetCFrame = CFrame.lookAt(cam.CFrame.Position, head.Position)
+
+		local distance = (cam.CFrame.Position - head.Position).Magnitude
+		local predictedPos = getPredictedPosition(head, lastTargetVelocity, distance, settings.aimSmoothness)
+		
+		local targetCFrame = CFrame.lookAt(cam.CFrame.Position, predictedPos)
 		local alpha = 1 - math.exp(-dt / math.max(settings.aimSmoothness, 0.01))
 		cam.CFrame = cam.CFrame:Lerp(targetCFrame, alpha)
 	end)
